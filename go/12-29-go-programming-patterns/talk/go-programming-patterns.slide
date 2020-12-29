@@ -1,5 +1,5 @@
 Go programming patterns
-Dec 24, 2020
+Dec 29, 2020
 
 罗健文
 
@@ -14,7 +14,7 @@ Dec 24, 2020
 
 * GopherChina 2020
 
-.image img/go-programming-patterns.png
+.image img/gopher-china.png
 
 * Go programming patterns
 
@@ -30,249 +30,265 @@ Dec 24, 2020
 
 * Topics
 
-- Basic Coding
 - Error Handing
 - Functional Options
-- sandbox parses output, simulates passage of time in browser
-- doesn't tie up server resources
-
-* Slice Internals
-
-.image img/slice-internals.png
-
-* Slices Overlapped
-
-.image img/slices-overlapped.png
-
-* Slices Overlapped
-
-.image img/slices-overlapped-2.png
-
-* Function vs Receiver
-
-.image img/function-vs-receiver.png
-
-* Interface Patterns
-
-.image img/interface-patterns-1.png
-
-* Interface Patterns
-
-.image img/interface-patterns-2.png
-
-* Interface Patterns
-
-.image img/interface-patterns-3.png
-
-* Performance
-
-.image img/performance-1.png
-
-* Performance
-
-.image img/performance-2.png
-
-* Performance
-
-.image img/performance-3.png
 
 * Error Handing
 
-.image img/checking-hell.png
+Go 语言的函数支持多返回值，所以，可以在返回接口把业务语义（业务返回值）和控制语义（出错返回值）区分开来。Go 语言的很多函数都会返回 result, err 两个值。
 
-* Functional Solution
+- 参数上基本上就是入参，而返回接口把结果和错误分离，这样使得函数的接口语义清晰；
+- 而且，Go 语言中的错误参数如果要忽略，需要显式地忽略，用 _ 这样的变量来忽略；
+- 另外，因为返回的 error 是个接口（其中只有一个方法 Error()，返回一个 string ），所以你可以扩展自定义的错误处理。
 
-.image img/functional-solution.png
+* Error Handing
 
-* Learning from bufio.Scanner
+如果一个函数返回了多个不同类型的 error，可以这样做：
 
-.image img/learning-from-bufio-scanner.png
+    if err != nil {
+    switch err.(type) {
+        case *json.SyntaxError:
+        ...
+        case *ZeroDivisionError:
+        ...
+        case *NullPointerError:
+        ...
+        default:
+        ...
+    }
+    }
 
-* Using an Error Object
+* Error Check Hell
+    func parse(r io.Reader) (*Point, error) {
 
-.image img/using-an-error-object.png
+        var p Point
+
+        if err := binary.Read(r, binary.BigEndian, &p.Longitude); err != nil {
+            return nil, err
+        }
+        if err := binary.Read(r, binary.BigEndian, &p.Latitude); err != nil {
+            return nil, err
+        }
+        if err := binary.Read(r, binary.BigEndian, &p.Distance); err != nil {
+            return nil, err
+        }
+        if err := binary.Read(r, binary.BigEndian, &p.ElevationGain); err != nil {
+            return nil, err
+        }
+        if err := binary.Read(r, binary.BigEndian, &p.ElevationLoss); err != nil {
+            return nil, err
+        }
+    }
+
+* Error Handing
+
+可以通过函数式编程的方式
+
+    func parse(r io.Reader) (*Point, error) {
+        var p Point
+        var err error
+        read := func(data interface{}) {
+            if err != nil {
+                return
+            }
+            err = binary.Read(r, binary.BigEndian, data)
+        }
+
+        read(&p.Longitude)
+        read(&p.Latitude)
+        read(&p.Distance)
+        read(&p.ElevationGain)
+        read(&p.ElevationLoss)
+
+        if err != nil {
+            return &p, err
+        }
+        return &p, nil
+    }
+
+* Error Handing
+
+    type Reader struct {
+        r   io.Reader
+        err error
+    }
+
+    func (r *Reader) read(data interface{}) {
+        if r.err == nil {
+            r.err = binary.Read(r.r, binary.BigEndian, data)
+        }
+    }
+
+    func parse(input io.Reader) (*Point, error) {
+        var p Point
+        r := Reader{r: input}
+
+        r.read(&p.Longitude)
+        r.read(&p.Latitude)
+        r.read(&p.Distance)
+        r.read(&p.ElevationGain)
+        r.read(&p.ElevationLoss)
+        if r.err != nil {
+            return nil, r.err
+        }
+        return &p, nil
+    }    
+
+* Error Handing
+
+Article：
+
+.link http://jxck.hatenablog.com/entry/golang-error-handling-lesson-by-rob-pike     golang-error-handling-lesson-by-rob-pike
+.link https://coolshell.cn/articles/21140.html  Go编程模式——错误处理--左耳耗子
+.link https://blog.golang.org/errors-are-values errors-are-values
+
 
 * Functional Options
 
-.image img/configuration-problem.png
+你有一个任务就是编写一些关键的服务组件，就像这样的代码：
+
+    page gplusplus
+
+    import "net"
+
+    type Server struct {
+        listener net.Listener
+    }
+
+    func (s *Server) Add() net.Addr
+    func (s *Server) Shutdown()
+
+    // NewServer returns a new Server listenering on addr.
+    func NewServer(addr string) (*Server, error) {
+        l, err := net.Listen("tcp", addr)
+        if err !=nil {
+            return nil, err
+        }
+        
+        srv := Server{listener: l}
+        go src.run()
+        return &srv, nil
+    }
+
+* Functional Options
+
+新需求来了
+
+- does your server support TLS ?
+- can I limit the number of clients ?
+- can I specify the port ?
+- can I set the timeout ?
+- ... and more ...
+
+
+    func NewServer(addr string, port int, maxconns int, timeout time.Duration, tls *tls.Config) (*Server, error) {
+        //...
+    }
+
+* Functional Options
+   
+    // We need a number of New Server function for different senarios
+    func NewServer(addr string, port int) (*Server, error) {
+        //...
+    }
+    func NewTLSServer(addr string, port int, tls *tls.Config) (*Server, error) {
+        //...
+    }
+    func NewServerWithTimeout(addr string, port int, timeout time.Duration) (*Server, error) {
+        //...
+    }
+    func NewTLSServerWithMaxConnAndTimeout(addr string, port int, maxconns int, timeout time.Duration, tls *tls.Config) (*Server, error) {
+        //...
+    }
 
 * One Popular Solution
 
-.image img/one-popular-solution.png
+    type Config struct {
+        Protocol string
+        Timeout  time.Duration
+        Maxconns int
+        TLS      *tls.Config
+    }
+
+    func NewServer(add string, port int, config *Config) (*Server, error) {
+        //...
+    }
+
+    srv1, _ := NewServer("localhost", 9000, nil)
+	conf := Config{Protocol: "tcp", Timeout: 60 * time.Second, Maxconns: 10}
+	svc2, _ := NewServer("localhost", 9000, &conf)
+    conf.Maxconns=15
 
 * Functional Options
 
-.image img/functional-option.png
+    func NewServer(add string, port int, config ...*Config) (*Server, error) {
+        //...
+    }
 
-* Native Client (NaCl)
+    func main() {
+        svc1, _ := NewServer("localhost", 9000)
+        svc2, _ := NewServer("localhost", 9000, &Config{
+            Timeout:  10 * time.Second,
+            Maxconns: 10,
+        })
+    }    
 
-- July 2009, four months before Go
-- GOOS=nacl, GOARCH={386,amd64p32,arm}
-- restricted, verifiable subset of {386,amd64,arm}
-- some had ambitions to add it to Chrome, web
-- most people opposed
-- "Portable NativeClient" (PNaCl) later proposed, opposed
-- GOARCH=amd64p32: amd64, but 32-bit pointers
+* Functional Options
 
-* Playground ~v1
+    type Option func(*Server)
 
-- App Engine frontend, in Python, made RPC calls to pass source to:
-- C++ Borg backend, compiled Go to NaCl, ran under ptrace syscall filter
-- standard two layers of paranoia; either sufficient in theory alone, ptrace layer logs/alerts hard on any violation
+    func Protocol(p string) Option {
+        return func(s *Server) {
+            s.Protocol = p
+        }
+    }
 
-* Playground ~v1.1
+    func Timeout(timeout time.Duration) Option {
+        return func(s *Server) {
+            s.Timeout = timeout
+        }
+    }
 
-- GAE frontend rewritten from Python to Go
-- backend still C++ running NaCl on Borg
+    func MaxConns(maxconns int) Option {
+        return func(s *Server) {
+            s.Maxconns = maxconns
+        }
+    }
 
-* Playground ~v2
+    func TLS(tls *tls.Config) Option {
+        return func(s *Server) {
+            s.TLS = tls
+        }
+    }
 
-- move to App Engine Flex, where we can do more stuff
-- unify frontend + backend
-- run Native Client sel_ldr (NaCl runner binary) ourselves
-- no more C++
-- no more Borg
+* Functional Options
 
-* 2017
+    func NewServer(addr string, port int, options ...func(*Server)) (*Server, error) {
+        l, err := net.Listen("tcp", addr)
+        if err !=nil {
+            return nil, err
+        }
 
-- May 30, 2017: Portable Native Client (PNaCl) deprecated
-- Go never even implemented PNaCl (fortunately, in retrospect)
-- Go still implements the doubly deprecated arch-specific NaCl variants
+        srv := Server{listener: l}
+        for _, option := range options {
+            option(&srv)
+        }
+        return &srv, nil
+    }
 
-* 2018, 2019...
+Article：
 
-- WebAssembly rise continues
-- NaCl looking increasingly odd, high maintenance cost relative to its worth
-- maintenance: builder resources
-- maintenance: hoping runtime faketime patches still apply at every release
-- maintenance: amd64p32
-- but play.golang.org still depends on it
+.link https://commandcenter.blogspot.com/2014/01/self-referential-functions-and-design.html self-referential-functions-and-design--Robe Pike
 
-* How to sandbox play.golang.org without NaCl?
+.link https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis functional-options-for-friendly-apis--Dave Cheney
 
-* Plan: Playground v3
+* Functional Options
 
-- delete nacl/*
-- move Nacl's funky faketime support to linux/amd64 at least...
-- +build faketime (in master for Go 1.14; thanks, Austin!)
-- run otherwise regular linux/amd64 binaries in some sandbox
+.image img/options.png
 
-* gVisor
+* 资料
 
-- gVisor is a mostly complete re-implementation of the Linux system call interface, in Go
-- runs under various modes ("platforms"): KVM, ptrace
-- everything is hookable: ~FUSE on steroids
-- performance pretty good, especially with KVM, not that we really need performance
-- was Google-internal, open source May 2018
+.link https://blog.csdn.net/u013164931/article/details/101004573  Golang中present工具--萝卜头LJW
+.link https://github.com/robotLJW/GopherChina  GopherChina2020-ppt
+.link https://coolshell.cn/ 左耳耗子的博客
 
-* Who uses gVisor?
-
-- App Engine 2nd gen runtimes (all new ones)
-- Cloud Run
-- Cloud Functions
-- GKE Sandbox (opt-in hardened containers)
-- ...
-
-* How to use gVisor?
-
-- tricky, ~unsupported to use directly
-- comes with a "runsc" wrapper command that team recommends
-
-* runsc woes
-
-- runsc ("run secure container") is an OCI "runc"-compatible frontend to gVisor
-- runc interface itself is tricky
-- kinda gross to use directly
-- syzkaller fuzzer does, though, so Go driver code exists
-- but ...
-
-* root
-
-- runsc requires root
-- without networking and ptrace instead of kvm, it _almost_ doesn't require root, but gvisor team isn't quite done with rootless
-- App Engine, etc doesn't give us real root (uid=0, but fake, not enough caps, under gVisor itself)
-- gvisor can't run nested under gvisor (can't run on Cloud Run, for example)
-
-* Docker
-
-- But Docker supports runsc easily:
-
-    docker run --runtime=runsc ...
-
-- So we can just run a dynamically scaled pool of VMs running Docker + a backend HTTP server driving Docker, with a load balancer in front of the pool of VMs.
-
-* v3 architecture
-
-- existing HTTP frontend takes source, compiles binary (for now)
-- HTTP PUTs compiled binary to backend HTTP server
-
-* v3 architecture
-
-.image arch.png _ 700
-
-* On each VM
-
-- one privileged container that speaks HTTP
-- has bind-mounted /var/run/docker.dock, to control its parent docker
-- creates sibling-but-gvisor'ed containers for each play
-- HTTP server reads PUT'ed binary, pipes into secure container, reads stdout/stderr response & exit status
-- replies over HTTP to frontend
-
-* VM view
-
-.image cos.png _ 900
-
-* Transition plan
-
-* Today
-
-- Frontend compiles to nacl/amd64p32, runs binary
-
-* Today+1
-
-- Frontend compiles to nacl/amd64p32, runs binary
-- opt-in support for using new backend (in either linux/amd64 or nacl/amd64p32 mode)
-- temporary support in new backend to understand how to wrap nacl with sel_ldr binary
-
-* Today+2:
-
-- Frontend compiles to nacl/amd64p2, PUTs all requests to new backend
-- gets us operational experience with backend before Go 1.14 release day chaos
-
-* Go 1.14 release day
-
-- flip a bit in frontend that forces linux/amd64
-- NaCl no longer allowed
-- can delete all its playground code (minimal)
-
-* Future possibilities
-
-- stop shipping compiled binaries around the network?
-- ... minimal win, might not be worth it
-- unify compilation & running in the backend?
-- 0, 1, or 2 sandbox services to update per Go release?
-- 2 is too many
-- 1 is today, acceptable
-- 0 might be too risky
-
-* Alternatives
-
-* Cloud Run?
-
-- Almost perfect
-- but doesn't let you disable network (yet? Cloud Functions has VPC connectors, can route traffic to Linux VM that drops packets)
-- if root-less runsc happens, can run in ptrace mode under Cloud Run
-
-* GKE Sandbox?
-
-- not obviously any simpler, faster than this setup
-- but might be alternative later
-- worry about node pool elasticity latency? COS boots quickly.
-
-* WebAssembly?
-
-- large binaries for users
-- still experimental support, but improving
-- use WebAssembly for x/tools/cmd/present?
-- ... because this Docker runsc contraption is too complicated for casual users giving talks on laptops
-- or just run unsandboxes in cmd/present
